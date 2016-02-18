@@ -1,0 +1,87 @@
+微信开发踩坑之旅 之 自动回复功能
+
+在之前的博客中，讲到了服务器配置一项。服务器配置好后，就可以进行消息的自动回复了。
+
+
+本文记述主线
+·消息接受和发送简单介绍
+·xml格式解析
+·其他代码简介
+
+PS：以上仅为本人学习流程，延伸阅读请参考官方文档或其他大牛作品（其实本人也是摸着石头过河的-.-）。当然，有疑问或不当的地方，欢迎大家留言讨论。
+
+·消息接受和发送简单介绍
+消息的自定回复，就是用户在订阅号中进行了某些操作（订阅、点击菜单、输入内容等），然后通过微信服务器发送到个人服务器上，个人服务器处理操作后，再通过微信服务器转发给用户。
+我们需要考虑的过程是，个人服务器和微信服务器的交互过程。
+
+官网介绍如下，感觉比较易于理解：
+当用户发送消息给公众号时（或某些特定的用户操作引发的事件推送时），会产生一个POST请求，开发者可以在响应包（Get）中返回特定XML结构，来对该消息进行响应（现支持回复文本、图片、图文、语音、视频、音乐）。严格来说，发送被动响应消息其实并不是一种接口，而是对微信服务器发过来消息的一次回复。
+
+从微信服务器接收到的消息例子（文本消息）：
+<xml>
+<ToUserName><![CDATA[toUser]]></ToUserName>
+<FromUserName><![CDATA[fromUser]]></FromUserName> 
+<CreateTime>1348831860</CreateTime>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[this is a test]]></Content>
+<MsgId>1234567890123456</MsgId>
+</xml>
+
+其中前四个项目是固定了，每个消息都有这四个，ToUserName、FromUserName、CreateTime和MsgType，后面试根据不同的消息类型（MsgType）而不同的；
+MsgType包括文本、图片、语音、视频、小视频、地理位置、连接等消息，和关注/取消关注、扫描二维码、自定义菜单等时间推送，详细可关注官网，本博客仅以文本作为例子；
+MsgType是消息的时候，有MsgId，是事件推送的时候，没有MsgId；
+如果想避免重复，存在MsgId的时候，使用MsgId作为判断，不存在MsgId的话，可以使用 FromUserName+CreateTime作为判断；
+<![CDATA ]>符号的含义是，在xml解析的时候，在这个符号内的所有字符均解析为字符串，尤其是一些特殊符号（</>d等），一些数值类型的一般不加这个符号。
+
+发送给微信服务器的消息例子（文本消息）：
+<xml>
+<ToUserName><![CDATA[toUser]]></ToUserName>
+<FromUserName><![CDATA[fromUser]]></FromUserName>
+<CreateTime>12345678</CreateTime>
+<MsgType><![CDATA[text]]></MsgType>
+<Content><![CDATA[你好]]></Content>
+</xml>
+格式和要求基本上和接受的消息一样，不一样的地方在于MsgType没有事件推送类型，只有消息类型，包括文本、图片、语音、视频、音乐和图文等。
+
+·xml格式解析
+
+xml格式的解析是xml和java之间的转换。这里我用到了dom4j包和xstream包。
+这两个包的maven导入如下：
+<dependency>
+  <groupId>dom4j</groupId>
+  <artifactId>dom4j</artifactId>
+  <version>1.6</version>
+</dependency>
+<dependency>
+  <groupId>com.thoughtworks.xstream</groupId>
+  <artifactId>xstream</artifactId>
+  <version>1.4.8</version>
+</dependency>
+
+先说由xml转化为java
+类：MessageUtil
+
+public static Map<String, String> parseXml(HttpServletRequest request) throws Exception {
+	Map<String, String> map = new HashMap<String, String>();
+
+	InputStream inputStream = request.getInputStream();
+
+	SAXReader reader = new SAXReader();
+	Document document = reader.read(inputStream);
+
+	Element root = document.getRootElement();
+
+	@SuppressWarnings("unchecked")
+	List<Element> elements = root.elements();
+
+	for (Element el : elements) {
+		map.put(el.getName(), el.getText());
+	}
+
+	inputStream.close();
+	inputStream = null;
+
+	return map;
+}
+
+

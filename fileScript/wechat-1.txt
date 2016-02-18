@@ -1,0 +1,113 @@
+微信开发踩坑之旅 之 开发准备及服务器配置
+
+在工作和兴趣的机缘巧合之下，我开始接触微信开发。在这里简单记述自己的微信开发踩坑之旅。
+首先，由于本人标准的理工科生，记述的语言有所不足，我尽量说明准确和详细点。
+
+本文记述主线
+·申请公众号
+·公众号之简单体验
+·申请个人服务器
+·服务器验证配置
+
+PS：以上仅为本人学习流程，延伸阅读请参考官方文档或其他大牛作品（其实本人也是摸着石头过河的-.-）
+
+·申请公众号
+公众号有三种，订阅号、服务号和企业号。
+订阅号主要提供信息和资讯，服务号主要提供服务（付款等），企业号是面向企业的（个人理解为企业管理服务的）。
+
+由于我是个人开发者，申请的是个人订阅号。
+申请后需要审核，大约三天左右我通过名称还是搜索不到我的订阅号，便查找原因。
+我在订阅号中，公众号设置-账号详细-微信号中，这一览开始是空的，需要自己命名（命名后不能修改），进行命名后，在查询中，通过微信号就可以搜索到自己的订阅号了。
+
+·公众号之简单体验
+微信公众平台包含两种模式：开发模式、编辑模式。
+登录微信公众号开发平台后，默认的是编辑模式。编辑模式就是在平台上提供的一些功能来开发自己的公众号，比方说上面提供的群发功能、自动回复、自定义菜单、投票管理等。
+而开发模式是在 开发-基本配置-服务器配置 中进行启用后的。开发模式是所有功能完全在自己的服务器上进行的，这个服务器是一个web网站，只是返回信息是封装成微信特有的xml模式后在微信上展示的。
+
+其他方面，登录微信公众号后，还有一些管理（消息、用户、素材）、推广（广告、流量）、统计等功能。这些就不介绍了（我也简单看了下就过去了=.=）。
+
+·申请个人服务器
+微信公众号开发平台中的编辑模式进行了简单体验（自定义菜单、自动回复等），感觉功能上确实单调，便开始往开发模式琢磨。
+
+使用开发模式的第一步便是拥有自己的服务器。
+抱着免费优先的目标，我先后看了百度云、腾讯云、新浪云和阿里云等，这些写的是免费，但大多是之前免费，现在已经不免费了或只是免费试用。
+之后又尝试过nat123等外网解析工具（就是把自己电脑像外部映射为服务器），但微信服务器必须提供80端口（官方原文：微信公众号接口只支持80接口。），而nat123要映射80端口的话需要收费，然后...就没有然后了。
+最后，我选择了 OPENSHIFT（openshift.redhat.com），在这上面可以发布自己的程序并且有1G的硬盘，足够我使用了，缺点是有点慢。
+
+申请账号，创建应用的过程基本上百度或google的，没什么坑。
+唯一需要注意的是，工程发布上有时会慢一点。
+
+·服务器验证配置
+语言：java
+框架：springMVC
+数据库：暂时没用到，计划mysql
+
+服务器验证配置是，在微信公众号开发平台中，修改为开发模式上需要用到的（开发-基本配置-服务器配置-修改配置）。
+其目的就是简单进行握手，微信开发平台知道这个服务器是可以进行微信请求的，而服务器知道这是来自微信开发平台的请求。
+简单逻辑如下：
+1、双方需要有相同的token字段。
+2、微信开发平台发送字段（微信加密签名、时间戳、随机数、随机字符串）给自己的服务器。其中微信加密签名根据时间戳、随机数和token按照一定的算法进行计算的。
+3、自己的服务器根据收到的 时间戳、随机数和自己的token也按照相同的算法进行计算得到自己的微信加密签名，和发过来的微信加密签名进行比较，相同的话，则原样返回收到的随机字符串。（当然，直接返回收到的随机字符串也可以，这样的话，自己的服务器就不知道收到的信息是否是微信开发平台的了。）
+4、微信开发平台收到相同的随机字符串，则验证成功。
+
+这里出现过访问的URL地址需要考虑https或http的情况，并且在访问时经常会出现访问URL超时的情况（个人归咎于服务器访问慢的原因）。
+
+URL(服务器地址):
+https://XXXX.rhcloud.com/verifyWechat/
+
+服务器上验证相关代码
+·WechatController
+@RequestMapping(value = "/verifyWechat", method = RequestMethod.GET)
+public void get(HttpServletRequest request, HttpServletResponse response) {
+
+	logger.info("verifyWechat start.");
+
+	String signature = request.getParameter("signature");
+	String timestamp = request.getParameter("timestamp");
+	String nonce = request.getParameter("nonce");
+	String echostr = request.getParameter("echostr");
+
+	PrintWriter out = null;
+
+	try {
+		out = response.getWriter();
+		if (SignUtil.verifySignature(signature, timestamp, nonce)) {
+			out.print(echostr);
+			logger.info("verifyWechat end.");
+		} else {
+			logger.info("verify error.");
+		}
+	} catch (IOException e) {
+		logger.info("verify exception.");
+		e.printStackTrace();
+	} finally {
+		out.close();
+		out = null;
+	}
+}
+
+·SignUtil
+private static String token = Constants.TOKEN;
+
+public static boolean verifySignature(String signature, String timestamp, String nonce) {
+
+	String[] arr = new String[] { token, timestamp, nonce };
+	Arrays.sort(arr);
+	StringBuilder content = new StringBuilder();
+	for (int i = 0; i < arr.length; i++) {
+		content.append(arr[i]);
+	}
+	MessageDigest md = null;
+	String tmpStr = null;
+
+	try {
+		md = MessageDigest.getInstance("SHA-1");
+		byte[] digest = md.digest(content.toString().getBytes());
+		tmpStr = byteToStr(digest);
+	} catch (NoSuchAlgorithmException e) {
+		e.printStackTrace();
+	}
+
+	content = null;
+	return tmpStr != null ? tmpStr.equals(signature.toUpperCase()) : false;
+}
